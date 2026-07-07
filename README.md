@@ -13,6 +13,15 @@ The table below shows how we clearly separate the storage stage from the retriev
 
 ![Retrieval strategy diagram](assets/retrieval-strategy.svg)
 
+### Why OCR in the first place?
+
+Answering questions by retrieving the image is not desirable for two reasons: a) Vision-based reasoning over pixels is more expensive than reasoning over text, and b) the pixels themselves are fuzzy, unclear and potentially lossy. By extracting the text from the image via OCR, we can use a cheap text-based embedding model
+like `sentence-transformers/all-MiniLM-L6-v2`, and our query can run on that instead.
+
+This is the primary job of OCR: `image bytes → ocr_text → searchable_summary → vector`. It
+enables vector search over plain text (where only images existed before), and the same text also powers the full-text index, the late-interaction reranker, the structured `medicine_name`/`generic_name` fields, and the evaluation against ground-truth labels. This can massively reduce token usage in production for large
+datasets.
+
 ## Setup
 
 All scripts have been tested with `uv`, so this is the recommended way to set up the Python environment:
@@ -60,22 +69,15 @@ the header. Use `--limit 10` on any stage for quick local debugging.
 
 The LanceDB-specific pieces of the codebase are intentionally separated into logical components and concentrated in a few files:
 
-- `src/db.py` defines the `DoctorHandwriting` LanceDB schema, including the raw `image: bytes`
-  column, validation labels, OCR/extraction fields, and 384-dimensional `vector` column. It also
-  centralizes the local DB connection, table creation/opening, bounded reads, and merge updates.
-- `src/01_ingest_images.py` is the first LanceDB write path. It reads the Testing split PNG files as
-  bytes, stores them directly in the table, adds validation-only labels, and runs `table.optimize()`
-  once after initial ingestion.
-- `src/02_ocr.py` and `src/03_extract.py` show how downstream stages read bounded rows from the same
-  table and write computed columns back with batched `merge_insert` updates.
-- `src/04_embed_index.py` embeds `searchable_summary`, writes the `vector` column, and builds the
-  LanceDB scalar, full-text, and vector indexes.
-- `src/05_search.py` is the baseline dense retrieval path using `table.search(query_vector)` with
-  explicit `select(...)` and `limit(...)`.
-- `src/06_rerank.py` starts from LanceDB dense candidates, then applies optional late-interaction
-  reranking outside the table.
-- `src/07_evaluate.py` reads bounded Testing rows from LanceDB and publishes baseline OCR/extraction
-  metrics against the validation labels.
+| File | Role |
+| --- | --- |
+| `src/db.py` | Defines the `DoctorHandwriting` schema (raw `image: bytes`, validation labels, OCR/extraction fields, 384-dim `vector`) and centralizes the DB connection, table creation/opening, bounded reads, and merge updates. |
+| `src/01_ingest_images.py` | First write path: reads Testing-split PNGs as bytes, stores them directly in the table, adds validation-only labels, and runs `table.optimize()` once after ingestion. |
+| `src/02_ocr.py`, `src/03_extract.py` | Downstream stages that read bounded rows from the same table and write computed columns back with batched `merge_insert` updates. |
+| `src/04_embed_index.py` | Embeds `searchable_summary`, writes the `vector` column, and builds the scalar, full-text, and vector indexes. |
+| `src/05_search.py` | Baseline dense retrieval using `table.search(query_vector)` with explicit `select(...)` and `limit(...)`. |
+| `src/06_rerank.py` | Starts from LanceDB dense candidates, then applies optional late-interaction reranking outside the table. |
+| `src/07_evaluate.py` | Reads bounded Testing rows and publishes baseline OCR/extraction metrics against the validation labels. |
 
 ## Interfacing with VLMs
 
@@ -97,9 +99,10 @@ steps become composable programs rather than one-off prompts. This matters becau
 descriptions, and overall program can be optimized with algorithms like
 [GEPA](https://arxiv.org/abs/2507.19457), instead of relying only on manual prompt engineering.
 
-That is also why the dataset's source splits are useful. The Testing split stays reserved for the
-demo evaluation path, while the Training split can become a labeled optimization pool. First, run the
-unoptimized OCR/extraction pipeline and publish its Testing-split baseline with:
+This is also why the provided dataset's source splits are useful. The "Testing" split stays reserved for the
+demo evaluation path, while the "Training" split can become a labeled optimization dataset that we can
+use at a later stage. First, we run the unoptimized OCR/extraction pipeline and publish its Testing-split
+baseline with the following command:
 
 ```bash
 uv run src/07_evaluate.py
@@ -141,9 +144,7 @@ spending heavily on LLM tokens.
 - a full-text index on `searchable_summary`
 - a cosine vector index on `vector`
 
-If the sentence-transformers model is unavailable locally, the dense embedding path can fall back to
-deterministic feature-hashing embeddings so ingestion/indexing demos remain runnable. Use
-`--strict-embeddings` to fail instead.
+### Optional: Late-interaction Reranking
 
 `src/06_rerank.py` uses a ColBERT-style late-interaction pass by default with
 `colbert-ir/colbertv2.0`: it encodes query and candidate text into token vectors, then scores each
