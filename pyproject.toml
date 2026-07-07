@@ -1,0 +1,18 @@
+[project]
+name = "ocr-handwriting-retrieval"
+version = "0.1.0"
+description = "Handwritten doctor-notes OCR + structured extraction + LanceDB retrieval demo"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Core pipeline
+    "lancedb>=0.15",
+    "polars>=1.0",
+    "pillow>=10.0",
+    "sentence-transformers>=3.0",  # pulls in torch + transformers transitively
+    "dspy>=2.6",                   # OCR + structured extraction, drives GPT-5.5 mini via litellm
+    "python-dotenv>=1.0",          # load OPENAI_API_KEY from a local .env
+    # Late-interaction reranking (uses torch + transformers, already present via sentence-transformers)
+    "torch>=2.2",
+    "transformers>=4.40",
+]
