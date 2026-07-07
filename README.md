@@ -89,7 +89,7 @@ providers are supported and can be swapped out as necessary).
 The OCR stage is expected to make live model calls. A `--mock-from-labels` flag exists only for quick
 developer smoke tests of the storage/indexing path; do not use it for reported OCR quality.
 
-## Why DSPy?
+### Why DSPy?
 
 There are many reasonable ways to do structured extraction from OCR text, including native
 structured-output endpoints from LLM/VLM providers. This demo uses DSPy because the OCR and extraction
@@ -184,7 +184,7 @@ Late-interaction reranked results:
 
 Late interaction reranking promotes candidates with stronger token-level evidence for the query.
 
-## Use LanceDB Enteprise for Production
+## Use LanceDB Enterprise for Production
 
 Note that LanceDB OSS is fine for this local, reproducible proof-of-concept.
 
