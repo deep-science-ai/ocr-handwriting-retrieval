@@ -8,6 +8,9 @@ reranks those candidates using token-level query/document evidence.
 from __future__ import annotations
 
 import argparse
+from typing import cast
+
+from lancedb.query import LanceVectorQueryBuilder
 
 from config import LATE_INTERACTION_MODEL
 from db import open_table
@@ -28,9 +31,9 @@ def dense_candidates(query: str, candidate_limit: int, *, strict_embeddings: boo
     model = load_embedder(allow_fallback=not strict_embeddings)
     query_vector = encode_texts(model, [query])[0]
     table = open_table()
+    builder = cast(LanceVectorQueryBuilder, table.search(query_vector))
     return (
-        table.search(query_vector)
-        .metric("cosine")
+        builder.distance_type("cosine")
         .select(
             [
                 "id",

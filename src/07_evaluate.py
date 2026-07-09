@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-"""Publish held-out Testing metrics for the unoptimized pipeline.
+"""Publish held-out Testing metrics for an OCR/extraction pipeline run.
 
 This reads OCR/extraction outputs from LanceDB, compares OCR text with ground
-truth labels, and writes a Markdown baseline table before any GEPA optimization.
+truth labels, and writes a Markdown metrics table.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def bool_count(rows: list[dict], column: str) -> int:
     return sum(1 for row in rows if bool(row.get(column)))
 
 
-def rows_for_evaluation(limit: int | None) -> list[dict]:
+def rows_for_evaluation(limit: int | None, split: str) -> list[dict]:
     table = open_table()
     row_limit = limit or table.count_rows()
     return (
@@ -33,6 +33,7 @@ def rows_for_evaluation(limit: int | None) -> list[dict]:
         .select(
             [
                 "id",
+                "split",
                 "medicine_name",
                 "generic_name",
                 "ocr_text",
@@ -44,13 +45,13 @@ def rows_for_evaluation(limit: int | None) -> list[dict]:
                 "searchable_summary",
             ]
         )
-        .where("ocr_text IS NOT NULL")
+        .where(f"split = '{split}' AND ocr_text IS NOT NULL")
         .limit(row_limit)
         .to_list()
     )
 
 
-def evaluate(rows: list[dict]) -> tuple[str, list[dict]]:
+def evaluate(rows: list[dict], split: str, run_name: str) -> tuple[str, list[dict]]:
     evaluated = []
     for row in rows:
         exact = (row.get("ocr_text") or "").strip() == row["medicine_name"].strip()
@@ -78,7 +79,7 @@ def evaluate(rows: list[dict]) -> tuple[str, list[dict]]:
         "| Run | OCR model | Split | Rows | Exact OCR match | Normalized OCR match | Avg edit distance | Median edit distance | Human review flagged | Extraction coverage |",
         "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         (
-            f"| Unoptimized baseline | `{model_label}` | Testing | {total} | "
+            f"| {run_name} | `{model_label}` | {split} | {total} | "
             f"{percent(bool_count(evaluated, 'exact_match'), total)} | "
             f"{percent(bool_count(evaluated, 'normalized_match'), total)} | "
             f"{mean(distances):.2f} | {median(distances):.2f} | "
@@ -107,14 +108,21 @@ def disagreement_table(rows: list[dict], limit: int) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate the unoptimized OCR/extraction baseline.")
+    parser = argparse.ArgumentParser(description="Evaluate OCR/extraction metrics for a dataset split.")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--split",
+        choices=["Testing", "Training", "Validation"],
+        default="Testing",
+        help="Dataset split to evaluate. Defaults to held-out Testing rows.",
+    )
     parser.add_argument("--allow-mock", action="store_true", help="Allow reporting mock-label OCR rows.")
     parser.add_argument("--disagreements", type=int, default=10)
+    parser.add_argument("--run-name", default="Unoptimized baseline", help="Run label to write in the metrics table.")
     parser.add_argument("--output", default=None, help="Markdown output path. Defaults to outputs/baseline_results.md.")
     args = parser.parse_args()
 
-    rows = rows_for_evaluation(args.limit)
+    rows = rows_for_evaluation(args.limit, args.split)
     if not rows:
         raise RuntimeError("No OCR rows found. Run src/02_ocr.py first.")
 
@@ -125,11 +133,11 @@ def main() -> None:
             "Run live OCR with src/02_ocr.py, or pass --allow-mock for smoke-test reporting only."
         )
 
-    summary, evaluated = evaluate(rows)
+    summary, evaluated = evaluate(rows, args.split, args.run_name)
     body = [
-        "# Baseline Evaluation Results",
+        "# OCR Evaluation Results",
         "",
-        "These metrics evaluate the unoptimized OCR/extraction pipeline on the Testing split.",
+        f"These metrics evaluate {args.run_name} on the {args.split} split.",
         "",
         summary,
         "",

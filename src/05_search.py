@@ -8,6 +8,9 @@ with decoded image previews plus labels, OCR text, and extraction metadata.
 from __future__ import annotations
 
 import argparse
+from typing import cast
+
+from lancedb.query import LanceVectorQueryBuilder
 
 from db import open_table
 from embeddings import encode_texts, load_embedder
@@ -26,9 +29,9 @@ def search(query: str, limit: int, *, strict_embeddings: bool) -> list[dict]:
     model = load_embedder(allow_fallback=not strict_embeddings)
     query_vector = encode_texts(model, [query])[0]
     table = open_table()
+    builder = cast(LanceVectorQueryBuilder, table.search(query_vector))
     return (
-        table.search(query_vector)
-        .metric("cosine")
+        builder.distance_type("cosine")
         .select(
             [
                 "id",
