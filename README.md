@@ -29,7 +29,7 @@ All scripts have been tested with `uv`, so this is the recommended way to set up
 ```bash
 uv sync
 cp .env.example .env
-# add OPENAI_API_KEY=... to .env
+# add GEMINI_API_KEY=... to .env
 ```
 
 If you prefer, you can also run the code with standard `venv` and `pip`:
@@ -39,7 +39,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# add OPENAI_API_KEY=... to .env
+# add GEMINI_API_KEY=... to .env
 ```
 
 If you're not using `uv`, use standard `python *.py` commands to run the scripts below.
@@ -56,14 +56,30 @@ uv run src/03_extract.py
 uv run src/04_embed_index.py
 uv run src/05_search.py "antibiotic medication" "fever and pain medication"
 uv run src/06_rerank.py "antibiotic for infection"
-uv run src/07_evaluate.py
+uv run src/07_evaluate.py --run-name "Unoptimized baseline" --output outputs/baseline_results.md
+uv run src/08_optimize_ocr.py --auto medium
 ```
 
 We ingest the full Testing split from the source data: 780 data rows. The CSV has 781 lines including
 the header. Use `--limit 10` on any stage for quick local debugging.
 
 > [!NOTE]
-> `src/01_ingest_images.py` compacts the table after the initial local LanceDB ingestion, by calling `table.optimize()`. The OCR script in `src/02_ocr.py` makes to five concurrent model API calls for OCR and bulk-writes results back to LanceDB in batches of 25 rows, so the batch size for ingestion must be a clean multiple of the concurrency setting.
+> `src/01_ingest_images.py` compacts the table after the initial local LanceDB ingestion, by calling `table.optimize()`. The OCR script in `src/02_ocr.py` runs async DSPy model calls and then bulk-writes results back to LanceDB in batches.
+
+## Enterprise Geneva OCR Backfill
+
+For Enterprise runs, use a fresh physical table name for each destructive experiment instead of
+dropping and immediately recreating the canonical table name. This avoids races with asynchronous
+table cleanup on the old storage prefix.
+
+```bash
+RUN_TABLE=doctor_handwriting_gv_20260707_001
+uv run src/01_ingest_images.py --remote --mode create --table-name "$RUN_TABLE"
+uv run src/02_ocr_geneva.py --table-name "$RUN_TABLE" --column ocr_text --concurrency 8
+```
+
+After the backfill, point downstream scripts or demos at the verified run table. Keep old run tables
+around during active iteration; clean them up later only after they are no longer needed.
 
 ### LanceDB-specific code
 
@@ -78,15 +94,16 @@ The LanceDB-specific pieces of the codebase are intentionally separated into log
 | `src/05_search.py` | Baseline dense retrieval using `table.search(query_vector)` with explicit `select(...)` and `limit(...)`. |
 | `src/06_rerank.py` | Starts from LanceDB dense candidates, then applies optional late-interaction reranking outside the table. |
 | `src/07_evaluate.py` | Reads bounded Testing rows and publishes baseline OCR/extraction metrics against the validation labels. |
+| `src/08_optimize_ocr.py` | Optional final stage: inserts missing Training/Validation rows into the local LanceDB table, runs DSPy GEPA over the OCR signature, and saves an optimized program state. |
 
 ## Interfacing with VLMs
 
 OCR and structured extraction are implemented with DSPy:
 
-- OCR uses `dspy.Image` and `dspy.LM("openai/gpt-5.4-mini")` (several common model
-providers are supported and can be swapped out as necessary).
-- Extraction uses a DSPy signature over `ocr_text`.
-- `OPENAI_API_KEY` is read from `.env` or the environment.
+- OCR uses `dspy.Image` and `dspy.LM("gemini/gemini-3.1-flash-lite")`.
+- Extraction uses a DSPy signature over `ocr_text` with `gemini/gemini-2.5-flash-lite`.
+- GEPA reflection defaults to `gemini/gemini-3.1-pro-preview`.
+- `GEMINI_API_KEY` is read from `.env` or the environment.
 
 The OCR stage is expected to make live model calls. A `--mock-from-labels` flag exists only for quick
 developer smoke tests of the storage/indexing path; do not use it for reported OCR quality.
@@ -126,6 +143,9 @@ Use the following metric key to understand the results in the table:
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Unoptimized baseline | `gpt-5.4-mini` | Testing | 780 | 27.8% | 35.1% | 1.60 | 1.00 | 43.5% | 100.0% |
 
+This table is a historical baseline from the earlier GPT-backed configuration. After switching models,
+rerun `src/07_evaluate.py` to write fresh Gemini baseline metrics before running optimization.
+
 These results (and the edit distances) show that most extractions are off by just ~1-2 characters, so the low accuracy
 numbers can be improved with a better model, or a better description of the extraction task.
 
@@ -134,6 +154,46 @@ the optimized program against the same held-out Testing rows. With frameworks li
 can be optimized to squeeze more quality out of a smaller, cheaper model. For document pipelines, that
 can make the difference between a neat prototype and a system that scales to more images without
 spending heavily on LLM tokens.
+
+### Optional: Optimize the OCR Signature
+
+`src/08_optimize_ocr.py` is the final optional pipeline stage. It uses the local LanceDB table, inserts
+missing `Training` and `Validation` split rows into that table, then runs DSPy's GEPA optimizer against
+the OCR DSPy signature. `Training` is passed as the GEPA trainset, and `Validation` is passed as the
+GEPA valset. The student model defaults to `gemini/gemini-3.1-flash-lite`; the reflection model defaults
+to `gemini/gemini-3.1-pro-preview`.
+
+The default command uses the full Training split and a seeded, shuffled 192-row Validation sample.
+Keeping the GEPA valset smaller gives the optimizer more room to explore prompt variants within the
+same metric-call budget. Use `--val-limit 0` only when you explicitly want all Validation rows in the
+GEPA valset.
+
+The default GEPA metric is a simple combined objective: `90%` normalized exact OCR accuracy and `10%`
+edit-distance similarity. This makes normalized match dominate while still giving GEPA a directional
+signal among near misses. If you want a purely binary normalized-match objective, pass
+`--metric-style normalized_exact`.
+
+```bash
+uv run src/08_optimize_ocr.py --auto medium
+```
+
+Useful variants:
+
+```bash
+# Use smaller slices of Training/Validation for a smoke run.
+uv run src/08_optimize_ocr.py --auto light --train-limit 512 --val-limit 128
+
+# Use all Training and Validation rows, at the cost of less exploration per budget.
+uv run src/08_optimize_ocr.py --auto medium --val-limit 0
+```
+
+The optimized DSPy program is saved to `outputs/optimized_ocr_reader.json`, with reports under
+`outputs/optimization/`. To apply that optimized signature in a later OCR pass:
+
+```bash
+uv run src/02_ocr.py --program-path outputs/optimized_ocr_reader.json --overwrite
+uv run src/07_evaluate.py --run-name "Optimized OCR" --output outputs/optimized_results.md
+```
 
 ## Retrieval
 

@@ -6,13 +6,22 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     # Core pipeline
-    "lancedb>=0.15",
+    "lancedb==0.34.0",
     "polars>=1.0",
     "pillow>=10.0",
     "sentence-transformers>=3.0",  # pulls in torch + transformers transitively
-    "dspy>=2.6",                   # OCR + structured extraction, drives GPT-5.5 mini via litellm
-    "python-dotenv>=1.0",          # load OPENAI_API_KEY from a local .env
+    "dspy>=2.6",                   # OCR + structured extraction through LiteLLM-backed DSPy models
+    "python-dotenv>=1.0",          # load GEMINI_API_KEY from a local .env
     # Late-interaction reranking (uses torch + transformers, already present via sentence-transformers)
     "torch>=2.2",
     "transformers>=4.40",
+    "geneva[aws]==0.14.0",
 ]
+
+[tool.uv]
+extra-index-url = [
+    "https://pypi.fury.io/lancedb/",
+    "https://pypi.fury.io/lance-format/",
+]
+index-strategy = "unsafe-best-match"
+prerelease = "allow"

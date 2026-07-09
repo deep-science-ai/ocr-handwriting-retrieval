@@ -1,25 +1,54 @@
-from __future__ import annotations
-
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
-from config import OPENAI_EXTRACTION_MODEL, OPENAI_VISION_MODEL, load_local_env
+from config import EXTRACTION_MODEL, VISION_MODEL, load_local_env
+
+
+def litellm_model_id(model_name: str) -> str:
+    if "/" in model_name:
+        return model_name
+    if model_name.startswith("gemini-"):
+        return f"gemini/{model_name}"
+    if model_name.startswith("gpt-"):
+        return f"openai/{model_name}"
+    return model_name
+
+
+def api_key_env_for_model(model_name: str) -> str | None:
+    model_id = litellm_model_id(model_name)
+    if model_id.startswith("gemini/"):
+        return "GEMINI_API_KEY"
+    if model_id.startswith("openai/"):
+        return "OPENAI_API_KEY"
+    return None
 
 
 def configure_dspy(model_name: str):
     load_local_env()
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is required for live DSPy/OpenAI model calls.")
+    os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    if not any(
+        os.environ.get(key)
+        for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+    ):
+        os.environ.setdefault("NO_PROXY", "*")
+        os.environ.setdefault("no_proxy", "*")
+
+    model_id = litellm_model_id(model_name)
+    api_key_env = api_key_env_for_model(model_id)
+    if api_key_env and not os.environ.get(api_key_env):
+        raise RuntimeError(f"{api_key_env} is required for live DSPy model calls with {model_id}.")
 
     import dspy
 
-    lm = dspy.LM(f"openai/{model_name}")
+    dspy.configure_cache(enable_disk_cache=False, enable_memory_cache=False)
+    lm = dspy.LM(model_id, cache=False, temperature=0.0)
     dspy.configure(lm=lm)
     return dspy
 
 
-def make_handwriting_reader():
-    dspy = configure_dspy(OPENAI_VISION_MODEL)
+def make_handwriting_reader(model_name: str = VISION_MODEL, program_path: str | Path | None = None):
+    dspy = configure_dspy(model_name)
 
     class HandwritingOCR(dspy.Signature):
         """Transcribe the handwritten medicine name shown in the image, exactly as written."""
@@ -38,11 +67,14 @@ def make_handwriting_reader():
         async def aforward(self, image: dspy.Image):
             return await self.read.acall(image=image)
 
-    return dspy, HandwritingReader()
+    reader = HandwritingReader()
+    if program_path:
+        reader.load(str(program_path))
+    return dspy, reader
 
 
 def make_medical_term_extractor():
-    dspy = configure_dspy(OPENAI_EXTRACTION_MODEL)
+    dspy = configure_dspy(EXTRACTION_MODEL)
 
     class ExtractMedicalTerm(dspy.Signature):
         """Extract structured metadata from OCR text produced from handwritten medical text."""

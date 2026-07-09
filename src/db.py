@@ -15,11 +15,6 @@ class DoctorHandwriting(LanceModel):
     image: bytes
     medicine_name: str
     generic_name: str
-    ocr_text: str | None = None
-    ocr_model: str | None = None
-    ocr_exact_match: bool | None = None
-    ocr_normalized_match: bool | None = None
-    ocr_edit_distance: int | None = None
     normalized_text: str | None = None
     category: str | None = None
     is_medical: bool | None = None
@@ -39,9 +34,9 @@ def table_exists() -> bool:
     return TABLE_NAME in db.table_names()
 
 
-def create_table(mode: str = "overwrite"):
+def create_table(mode: str = "overwrite", table_name: str = TABLE_NAME):
     db = connect_db()
-    return db.create_table(TABLE_NAME, schema=DoctorHandwriting, mode=mode)
+    return db.create_table(table_name, schema=DoctorHandwriting, mode=mode)
 
 
 def open_table():

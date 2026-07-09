@@ -9,7 +9,12 @@ DATA_DIR = ROOT / "data"
 TESTING_DIR = DATA_DIR / "Testing"
 TESTING_LABELS = TESTING_DIR / "testing_labels.csv"
 TESTING_WORDS = TESTING_DIR / "testing_words"
-TRAINING_LABELS = DATA_DIR / "Training" / "training_labels.csv"
+TRAINING_DIR = DATA_DIR / "Training"
+TRAINING_LABELS = TRAINING_DIR / "training_labels.csv"
+TRAINING_WORDS = TRAINING_DIR / "training_words"
+VALIDATION_DIR = DATA_DIR / "Validation"
+VALIDATION_LABELS = VALIDATION_DIR / "validation_labels.csv"
+VALIDATION_WORDS = VALIDATION_DIR / "validation_words"
 
 DB_PATH = ROOT / "lancedb_handwriting_demo"
 TABLE_NAME = "doctor_handwriting"
@@ -20,8 +25,13 @@ DEFAULT_TEST_LIMIT: int | None = None
 DEFAULT_PREVIEW_SAMPLES = 8
 VECTOR_DIM = 384
 
-OPENAI_VISION_MODEL = "gpt-5.4-mini"
-OPENAI_EXTRACTION_MODEL = "gpt-5.4-mini"
+VISION_MODEL = "gemini/gemini-3.1-flash-lite"
+EXTRACTION_MODEL = "gemini/gemini-3.1-flash-lite"
+REFLECTION_MODEL = "gemini/gemini-3.1-pro-preview"
+# Backwards-compatible aliases for older imports/scripts.
+OPENAI_VISION_MODEL = VISION_MODEL
+OPENAI_EXTRACTION_MODEL = EXTRACTION_MODEL
+OPENAI_REFLECTION_MODEL = REFLECTION_MODEL
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 LATE_INTERACTION_MODEL = "colbert-ir/colbertv2.0"
 
