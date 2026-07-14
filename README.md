@@ -1,6 +1,8 @@
 # Handwritten Documents OCR Retrieval in LanceDB
 
-This repository demonstrates how to use [LanceDB](https://docs.lancedb.com/) as the storage and
+Code for [the blog post](https://www.lancedb.com/blog/make-handwritten-notes-searchable-optimizing-an-ocr-pipeline-with-lancedb) on using LanceDB with DSPy and GEPA for optimizing the instruction on an OCR task.
+
+This codebase demonstrates how to use [LanceDB](https://docs.lancedb.com/) as the storage and
 retrieval layer using handwritten documents and OCR-extracted text for document search.
 It uses [this Kaggle Doctor Handwriting Recognition Dataset](https://www.kaggle.com/datasets/mamun1113/doctors-handwritten-prescription-bd-dataset)
 The dataset is stored under the `data/` directory in this repo (download the dataset from Kaggle and place it in this location)
